@@ -1,0 +1,28 @@
+{
+  "name": "ifixit-cli",
+  "version": "0.1.0",
+  "description": "CLI for running RALPH loops with Claude Code",
+  "main": "dist/index.js",
+  "bin": {
+    "ifixit-cli": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "dev": "tsc --watch",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "files": [
+    "dist",
+    "prompt.md",
+    "config.json",
+    "Dockerfile"
+  ],
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  }
+}
