@@ -122,6 +122,7 @@ Each iteration:
 5. Claude works the task, commits with a `RALPH:` prefix, and closes the issue (or comments if partial)
 
 The loop ends when:
+
 - Claude reports all issues complete
 - Max iterations reached (default: 100)
 - 3 consecutive iterations produce no commit (circuit breaker)
@@ -146,6 +147,10 @@ npm run build        # Compile TypeScript
 npm test             # Run tests (build first)
 npm run dev          # Watch mode
 ```
+
+## Acknowledgments
+
+The RALPH loop concept in this project is inspired by [Matt Pocock's sandcastle CLI](https://github.com/mattpocock). Built with AI assistance.
 
 ## License
 
