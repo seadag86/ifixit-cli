@@ -31,5 +31,10 @@ ENV PATH="/home/agent/.local/bin:$PATH"
 # Create repos directory
 RUN mkdir -p /home/agent/repos
 
+# Configure git for the agent user
+RUN git config --global user.name "RALPH" && \
+    git config --global user.email "ralph@ifixit-cli.local" && \
+    git config --global --add safe.directory /home/agent/repos
+
 WORKDIR /home/agent
 ENTRYPOINT ["sleep", "infinity"]

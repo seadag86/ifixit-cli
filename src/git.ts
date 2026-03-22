@@ -56,3 +56,16 @@ export const getRecentRalphCommits = (dir: string, count: number = 10): string =
     return '';
   }
 };
+
+export const getCommitMessage = (sha: string, dir: string): string => {
+  try {
+    return git(['log', '-1', '--format=%B', sha], dir);
+  } catch {
+    return '';
+  }
+};
+
+export const parseClosedIssues = (message: string): number[] => {
+  const matches = [...message.matchAll(/closes\s+#(\d+)/gi)];
+  return matches.map((m) => parseInt(m[1], 10));
+};

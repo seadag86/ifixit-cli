@@ -1,4 +1,4 @@
-import { execFileSync, ExecSyncOptions } from 'child_process';
+import { execFileSync, spawnSync, ExecSyncOptions } from 'child_process';
 import { Credentials } from './credentials';
 
 const IMAGE_NAME = 'ifixit-cli';
@@ -84,22 +84,31 @@ export const startContainer = (
 export const execInContainer = (
   command: string[],
   verbose: boolean = false,
-): { stdout: string; exitCode: number } => {
-  try {
-    const result = execFileSync('docker', [
-      'exec', CONTAINER_NAME, ...command,
+): { stdout: string; stderr: string; exitCode: number } => {
+  if (verbose) {
+    const result = spawnSync('docker', [
+      'exec', '-w', '/home/agent/repos', CONTAINER_NAME, ...command,
     ], {
       encoding: 'utf-8',
-      stdio: verbose ? 'inherit' : 'pipe',
+      stdio: ['pipe', 'inherit', 'inherit'],
       maxBuffer: 50 * 1024 * 1024,
     });
-    return { stdout: (result ?? '').toString(), exitCode: 0 };
-  } catch (err: any) {
-    return {
-      stdout: (err.stdout ?? '').toString(),
-      exitCode: err.status ?? 1,
-    };
+    return { stdout: '', stderr: '', exitCode: result.status ?? 1 };
   }
+
+  const result = spawnSync('docker', [
+    'exec', '-w', '/home/agent/repos', CONTAINER_NAME, ...command,
+  ], {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    maxBuffer: 50 * 1024 * 1024,
+  });
+
+  return {
+    stdout: (result.stdout ?? '').toString(),
+    stderr: (result.stderr ?? '').toString(),
+    exitCode: result.status ?? 1,
+  };
 };
 
 export const stopContainer = (): void => {

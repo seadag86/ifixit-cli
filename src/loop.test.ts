@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { runLoop, LoopDeps, LoopConfig } from './loop';
+import { parseClosedIssues } from './git';
 import { Issue } from './prompt';
 
 const makeIssue = (n: number): Issue => ({
@@ -16,8 +17,21 @@ const baseConfig: LoopConfig = {
   maxIterations: 10,
   failureThreshold: 3,
   verbose: false,
+  debug: false,
+  interactive: false,
   projectDir: '/tmp/fake',
 };
+
+const makeDeps = (overrides: Partial<LoopDeps> = {}): LoopDeps => ({
+  fetchOpenIssues: () => [makeIssue(1)],
+  getRecentRalphCommits: () => '',
+  assemblePrompt: () => 'prompt',
+  getLatestRalphCommit: () => null,
+  getCommitMessage: () => '',
+  execInContainer: () => ({ stdout: '', stderr: '', exitCode: 0 }),
+  closeIssue: () => {},
+  ...overrides,
+});
 
 describe('runLoop', () => {
   let logs: string[];
@@ -34,16 +48,12 @@ describe('runLoop', () => {
 
   it('stops with complete when COMPLETE signal is in output', () => {
     let callCount = 0;
-    const deps: LoopDeps = {
-      fetchOpenIssues: () => [makeIssue(1)],
-      getRecentRalphCommits: () => '',
-      assemblePrompt: () => 'prompt',
-      getLatestRalphCommit: () => null,
+    const deps = makeDeps({
       execInContainer: () => {
         callCount++;
-        return { stdout: '<promise>COMPLETE</promise>', exitCode: 0 };
+        return { stdout: '<promise>COMPLETE</promise>', stderr: '', exitCode: 0 };
       },
-    };
+    });
 
     const result = runLoop(baseConfig, deps);
     assert.equal(result.reason, 'complete');
@@ -52,13 +62,9 @@ describe('runLoop', () => {
 
   it('stops at max iterations', () => {
     let commitSha = 0;
-    const deps: LoopDeps = {
-      fetchOpenIssues: () => [makeIssue(1)],
-      getRecentRalphCommits: () => '',
-      assemblePrompt: () => 'prompt',
+    const deps = makeDeps({
       getLatestRalphCommit: () => `sha${++commitSha}`.padEnd(40, '0'),
-      execInContainer: () => ({ stdout: '', exitCode: 0 }),
-    };
+    });
 
     const config = { ...baseConfig, maxIterations: 3 };
     const result = runLoop(config, deps);
@@ -67,14 +73,7 @@ describe('runLoop', () => {
   });
 
   it('stops after consecutive failures hit threshold', () => {
-    const deps: LoopDeps = {
-      fetchOpenIssues: () => [makeIssue(1)],
-      getRecentRalphCommits: () => '',
-      assemblePrompt: () => 'prompt',
-      getLatestRalphCommit: () => null,
-      execInContainer: () => ({ stdout: '', exitCode: 0 }),
-    };
-
+    const deps = makeDeps();
     const config = { ...baseConfig, failureThreshold: 3 };
     const result = runLoop(config, deps);
     assert.equal(result.reason, 'circuit_breaker');
@@ -84,10 +83,7 @@ describe('runLoop', () => {
 
   it('resets failure counter after a success', () => {
     let iteration = 0;
-    const deps: LoopDeps = {
-      fetchOpenIssues: () => [makeIssue(1)],
-      getRecentRalphCommits: () => '',
-      assemblePrompt: () => 'prompt',
+    const deps = makeDeps({
       getLatestRalphCommit: () => {
         iteration++;
         // Iterations 1,2 fail (null), 3 succeeds, 4,5,6 fail
@@ -97,8 +93,7 @@ describe('runLoop', () => {
         if (iter === 3 && isAfter) return 'a'.repeat(40);
         return null;
       },
-      execInContainer: () => ({ stdout: '', exitCode: 0 }),
-    };
+    });
 
     const config = { ...baseConfig, maxIterations: 10, failureThreshold: 3 };
     const result = runLoop(config, deps);
@@ -109,7 +104,7 @@ describe('runLoop', () => {
 
   it('stops with complete when no issues remain', () => {
     let fetchCount = 0;
-    const deps: LoopDeps = {
+    const deps = makeDeps({
       fetchOpenIssues: () => {
         fetchCount++;
         // First call (initialIssues in constructor): return issues
@@ -118,14 +113,11 @@ describe('runLoop', () => {
         if (fetchCount <= 2) return [makeIssue(1)];
         return [];
       },
-      getRecentRalphCommits: () => '',
-      assemblePrompt: () => 'prompt',
       getLatestRalphCommit: (() => {
         let sha = 0;
         return () => `sha${++sha}`.padEnd(40, '0');
       })(),
-      execInContainer: () => ({ stdout: '', exitCode: 0 }),
-    };
+    });
 
     const result = runLoop(baseConfig, deps);
     assert.equal(result.reason, 'complete');
@@ -134,7 +126,7 @@ describe('runLoop', () => {
   it('tracks closed issues correctly', () => {
     let fetchCount = 0;
     const allIssues = [makeIssue(1), makeIssue(2), makeIssue(3)];
-    const deps: LoopDeps = {
+    const deps = makeDeps({
       fetchOpenIssues: () => {
         fetchCount++;
         // Initial fetch + iteration 1: all 3
@@ -142,14 +134,11 @@ describe('runLoop', () => {
         if (fetchCount <= 2) return [...allIssues];
         return [makeIssue(2), makeIssue(3)];
       },
-      getRecentRalphCommits: () => '',
-      assemblePrompt: () => 'prompt',
       getLatestRalphCommit: (() => {
         let sha = 0;
         return () => `sha${++sha}`.padEnd(40, '0');
       })(),
-      execInContainer: () => ({ stdout: '', exitCode: 0 }),
-    };
+    });
 
     const config = { ...baseConfig, maxIterations: 2 };
     const result = runLoop(config, deps);
@@ -160,23 +149,73 @@ describe('runLoop', () => {
 
   it('calls fetchOpenIssues each iteration (fresh context)', () => {
     let fetchCount = 0;
-    const deps: LoopDeps = {
+    const deps = makeDeps({
       fetchOpenIssues: () => {
         fetchCount++;
         return [makeIssue(1)];
       },
-      getRecentRalphCommits: () => '',
-      assemblePrompt: () => 'prompt',
       getLatestRalphCommit: (() => {
         let sha = 0;
         return () => `sha${++sha}`.padEnd(40, '0');
       })(),
-      execInContainer: () => ({ stdout: '', exitCode: 0 }),
-    };
+    });
 
     const config = { ...baseConfig, maxIterations: 3 };
     runLoop(config, deps);
     // 1 initial + 3 iterations + 1 finish = 5
     assert.equal(fetchCount, 5);
+  });
+
+  it('calls closeIssue for each issue number parsed from commit message', () => {
+    const closed: number[] = [];
+    let commitSha = 0;
+    const deps = makeDeps({
+      getLatestRalphCommit: () => `sha${++commitSha}`.padEnd(40, '0'),
+      getCommitMessage: () => 'RALPH: closes #42 closes #7 — implemented widget',
+      closeIssue: (n) => closed.push(n),
+    });
+
+    const config = { ...baseConfig, maxIterations: 1 };
+    runLoop(config, deps);
+    assert.deepEqual(closed.sort((a, b) => a - b), [7, 42]);
+  });
+
+  it('does not call closeIssue when commit message has no closes reference', () => {
+    let closeCalled = false;
+    let commitSha = 0;
+    const deps = makeDeps({
+      getLatestRalphCommit: () => `sha${++commitSha}`.padEnd(40, '0'),
+      getCommitMessage: () => 'RALPH: refactored widget — no issue ref',
+      closeIssue: () => { closeCalled = true; },
+    });
+
+    const config = { ...baseConfig, maxIterations: 1 };
+    runLoop(config, deps);
+    assert.equal(closeCalled, false);
+  });
+});
+
+describe('parseClosedIssues', () => {
+  it('parses a single closes reference', () => {
+    assert.deepEqual(parseClosedIssues('RALPH: closes #42 — done'), [42]);
+  });
+
+  it('parses multiple closes references', () => {
+    assert.deepEqual(
+      parseClosedIssues('closes #1 closes #99').sort((a, b) => a - b),
+      [1, 99],
+    );
+  });
+
+  it('returns empty array when no references', () => {
+    assert.deepEqual(parseClosedIssues('RALPH: refactor — no issue'), []);
+  });
+
+  it('is case-insensitive', () => {
+    assert.deepEqual(parseClosedIssues('Closes #5'), [5]);
+  });
+
+  it('handles extra whitespace', () => {
+    assert.deepEqual(parseClosedIssues('closes  #10'), [10]);
   });
 });

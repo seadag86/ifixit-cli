@@ -5,9 +5,11 @@ export interface IfixitCliConfig {
   maxIterations: number;
   failureThreshold: number;
   verbose: boolean;
+  debug: boolean;
   dryRun: boolean;
   buildLocal: boolean;
   help: boolean;
+  interactive: boolean;
 }
 
 interface PartialConfig {
@@ -19,9 +21,11 @@ const DEFAULTS: IfixitCliConfig = {
   maxIterations: 100,
   failureThreshold: 3,
   verbose: false,
+  debug: false,
   dryRun: false,
   buildLocal: false,
   help: false,
+  interactive: false,
 };
 
 const loadProjectConfig = (projectDir: string): PartialConfig => {
@@ -40,20 +44,22 @@ ifixit-cli - Run RALPH loops with Claude Code
 Usage: ifixit-cli [options]
 
 Options:
-  -n, --max-iterations <num>   Max loop iterations (default: 100)
+  -n, --max-iterations <num>    Max loop iterations (default: 100)
   -f, --failure-threshold <num> Consecutive failures before stopping (default: 3)
-  -v, --verbose                Stream Claude Code output in real-time
-  --dry-run                    Show assembled prompt without executing
-  --build                     Build Docker image locally instead of pulling
-  -h, --help                  Show this help message
+  -i, --interactive             Show live status line (phase, elapsed time, failures)
+  -v, --verbose                 Stream Claude Code output in real-time
+  -d, --debug                   Print stdout, stderr, and exit code after each iteration
+  --dry-run                     Show assembled prompt without executing
+  --build                       Build Docker image locally instead of pulling
+  -h, --help                    Show this help message
 `.trim();
 
 export const printHelp = (): void => {
   console.log(HELP_TEXT);
 };
 
-const parseArgs = (argv: string[]): PartialConfig & { verbose?: boolean; dryRun?: boolean; buildLocal?: boolean; help?: boolean } => {
-  const parsed: PartialConfig & { verbose?: boolean; dryRun?: boolean; buildLocal?: boolean; help?: boolean } = {};
+const parseArgs = (argv: string[]): PartialConfig & { verbose?: boolean; debug?: boolean; dryRun?: boolean; buildLocal?: boolean; help?: boolean; interactive?: boolean } => {
+  const parsed: PartialConfig & { verbose?: boolean; debug?: boolean; dryRun?: boolean; buildLocal?: boolean; help?: boolean; interactive?: boolean } = {};
   const args = argv.slice(2);
 
   for (let i = 0; i < args.length; i++) {
@@ -81,9 +87,17 @@ const parseArgs = (argv: string[]): PartialConfig & { verbose?: boolean; dryRun?
         parsed.failureThreshold = val;
         break;
       }
+      case '-i':
+      case '--interactive':
+        parsed.interactive = true;
+        break;
       case '-v':
       case '--verbose':
         parsed.verbose = true;
+        break;
+      case '-d':
+      case '--debug':
+        parsed.debug = true;
         break;
       case '--dry-run':
         parsed.dryRun = true;
@@ -103,12 +117,18 @@ export const resolveConfig = (projectDir: string): IfixitCliConfig => {
   const projectConfig = loadProjectConfig(projectDir);
   const cliConfig = parseArgs(process.argv);
 
+  if (cliConfig.interactive && cliConfig.verbose) {
+    throw new Error('--interactive and --verbose are mutually exclusive');
+  }
+
   return {
     maxIterations: cliConfig.maxIterations ?? projectConfig.maxIterations ?? DEFAULTS.maxIterations,
     failureThreshold: cliConfig.failureThreshold ?? projectConfig.failureThreshold ?? DEFAULTS.failureThreshold,
     verbose: cliConfig.verbose ?? DEFAULTS.verbose,
+    debug: cliConfig.debug ?? DEFAULTS.debug,
     dryRun: cliConfig.dryRun ?? DEFAULTS.dryRun,
     buildLocal: cliConfig.buildLocal ?? DEFAULTS.buildLocal,
     help: cliConfig.help ?? DEFAULTS.help,
+    interactive: cliConfig.interactive ?? DEFAULTS.interactive,
   };
 };

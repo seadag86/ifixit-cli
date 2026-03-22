@@ -25,6 +25,14 @@ export const transformIssues = (ghIssues: GhIssue[]): Issue[] => {
     }));
 };
 
+export const closeIssue = (issueNumber: number, projectDir: string): void => {
+  execFileSync('gh', ['issue', 'close', String(issueNumber)], {
+    cwd: projectDir,
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  });
+};
+
 export const fetchOpenIssues = (projectDir: string): Issue[] => {
   const raw = execFileSync('gh', [
     'issue', 'list',

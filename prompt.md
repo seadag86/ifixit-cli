@@ -33,16 +33,15 @@ Complete the task.
 Make a git commit. The commit message must:
 
 1. Start with `RALPH:` prefix
-2. Include task completed + PRD reference
-3. Key decisions made
-4. Files changed
-5. Blockers or notes for next iteration
+2. Include `closes #<N>` for the issue being resolved (e.g. `closes #42`)
+3. Include task completed + PRD reference
+4. Key decisions made
+5. Files changed
+6. Blockers or notes for next iteration
 
 Keep it concise.
 
 # THE ISSUE
-
-If the task is complete, close the original GitHub issue.
 
 If the task is not complete, leave a comment on the GitHub issue with what was done.
 

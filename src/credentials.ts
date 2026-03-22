@@ -15,7 +15,8 @@ const parseEnvFile = (filePath: string): Record<string, string> => {
     const eqIndex = trimmed.indexOf('=');
     if (eqIndex === -1) continue;
     const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim();
+    const raw = trimmed.slice(eqIndex + 1).trim();
+    const value = raw.replace(/^(['"])(.*)\1$/, '$2');
     env[key] = value;
   }
   return env;

@@ -1,5 +1,9 @@
 # ifixit-cli
 
+![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)
+
+> **This project is in early alpha.** It works, but it hasn't been battle-tested across diverse repos and workflows. Expect rough edges, breaking changes, and missing guardrails. Feedback and bug reports are very welcome — see [Contributing](#contributing) below.
+
 A CLI that runs RALPH loops — automated, iterative development powered by Claude Code. Point it at a repo with open GitHub issues and let it work through them one by one inside a Docker container, committing progress along the way.
 
 ## Prerequisites
@@ -147,6 +151,39 @@ npm run build        # Compile TypeScript
 npm test             # Run tests (build first)
 npm run dev          # Watch mode
 ```
+
+## Contributing
+
+Contributions are welcome — this is an alpha project and there's plenty to improve.
+
+### Getting Started
+
+1. Fork the repo and clone your fork
+2. Install dependencies: `npm install`
+3. Build: `npm run build`
+4. Run tests: `npm test`
+5. Use `npm run dev` for watch mode during development
+
+### Submitting Changes
+
+1. Create a branch from `main` for your work (`git checkout -b feat/my-change`)
+2. Make your changes, keeping commits atomic and focused
+3. Ensure `npm run build && npm test` passes before pushing
+4. Open a pull request against `main` with a clear description of what and why
+
+### Guidelines
+
+- **Bug reports** — Open an issue with steps to reproduce, expected behavior, and actual behavior
+- **Feature requests** — Open an issue describing the use case before starting work, so we can discuss the approach
+- **Code style** — TypeScript strict mode, follow existing patterns in the codebase
+- **Tests** — Add tests for new functionality; the project uses Node's built-in test runner (`node:test`)
+- **Commits** — Use [conventional commit](https://www.conventionalcommits.org/) prefixes (`feat`, `fix`, `refactor`, `test`, `docs`)
+
+### What Could Use Help
+
+- Testing against different repo sizes and issue volumes
+- Better error messages and recovery from edge cases
+- Documentation improvements
 
 ## Acknowledgments
 

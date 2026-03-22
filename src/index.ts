@@ -78,6 +78,8 @@ const run = async (): Promise<void> => {
       maxIterations: config.maxIterations,
       failureThreshold: config.failureThreshold,
       verbose: config.verbose,
+      debug: config.debug,
+      interactive: config.interactive,
       projectDir,
     });
 
