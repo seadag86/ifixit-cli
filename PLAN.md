@@ -1,81 +1,38 @@
-# PLAN: Interactive Mode + Issue Auto-Close
+# Plan: Async Output Streaming, Orthogonal Flags, and Issue Pre-fetching
 
-## Decisions
+PRD: seadag86/ifixit-cli#1
 
-### Interactive Mode (`-i / --interactive`)
-- Distinct from `--verbose` — structured status, not raw Claude output
-- Single line rewritten in place: `[3/10] ◐ Iteration 3 — running claude (0:01:23 elapsed | failures: 0)`
-- Shows: iteration counter, total elapsed, per-iteration elapsed, current loop phase, consecutive failure count
-- Mutually exclusive with `--verbose` — throw on conflict
-- Zero new dependencies — raw ANSI escape codes only
+## Issues
 
-### Issue Auto-Close
-- Issues left open after a RALPH commit cause thrash — must be closed
-- **Host CLI closes issues**, not Docker/Claude — keeps state management in one actor
-- After detecting a new RALPH commit, host parses commit message for `closes #N` references and calls `gh issue close <N>`
-- Commit message convention enforced via prompt template: `RALPH: closes #42 — <description>`
+| # | Title | Status | Blocked by |
+|---|-------|--------|------------|
+| #2 | Async tee execution in Docker layer | ✅ Done | — |
+| #3 | Async loop engine | ✅ Done | #2 |
+| #4 | Orthogonal flags | ✅ Done | #2 |
+| #5 | Issue pre-fetching | ✅ Done | #3 |
 
----
+## Changes Made
 
-## Phase 1: Interactive Mode
+### docker.ts
+- Replaced `spawnSync` with async `spawn` + tee pattern
+- `execInContainer` now returns `Promise<{ stdout, stderr, exitCode }>`
+- `stream` option controls whether output is piped to terminal in real-time
+- Output is always captured into buffers regardless of stream setting
 
-### 1.1 Config (`src/config.ts`)
-- Add `-i, --interactive` boolean flag
-- Validate: throw if `--interactive` and `--verbose` are both set
+### loop.ts
+- `runLoop` is now async, returns `Promise<LoopResult>`
+- `LoopDeps.execInContainer` returns `Promise<ExecResult>`
+- Pre-fetches issues for next iteration during Claude Code execution
+- Recent commits fetched after post-iteration processing (not pre-fetched)
+- First iteration fetches issues directly; subsequent iterations use pre-fetched results
 
-### 1.2 Loop status display (`src/loop.ts`)
-- Add `interactive` to `LoopDeps` (or pass via config)
-- Track: `iterationStartTime`, `loopStartTime`, `phase` (enum: `fetching` | `assembling` | `running` | `checking`)
-- On each phase transition, call a `renderStatus(state)` function
-- `renderStatus` writes `\r` + status string to `process.stdout` (no newline, overwrites in place)
-- On loop exit, write a final newline to leave terminal clean
+### config.ts
+- Removed `--interactive` / `--verbose` mutual exclusion check
+- Flags are now orthogonal: `--interactive` = UI chrome, `--verbose` = stream output
 
-### 1.3 Status format
-```
-[3/10] ◐ running claude  (iter: 0:00:47 | total: 0:02:13 | failures: 0)
-```
-- Spinner cycles through `◐ ◓ ◑ ◒` on each render
-- Phases: `fetching issues`, `assembling prompt`, `running claude`, `checking commits`
+### index.ts
+- `runLoop` call now awaited
 
----
-
-## Phase 2: Issue Auto-Close
-
-### 2.1 Prompt template (`prompt.md`)
-- Add instruction: Claude must include `closes #<N>` in every RALPH commit message for the issue being resolved
-- Clarify: one issue per RALPH commit
-
-### 2.2 Commit parsing (`src/git.ts`)
-- Add `parseClosedIssues(commitMessage: string): number[]`
-- Regex: `/closes\s+#(\d+)/gi`
-- Return array of issue numbers
-
-### 2.3 Loop integration (`src/loop.ts`)
-- After detecting a new RALPH commit, call `parseClosedIssues` on the commit message
-- Pass closed issue numbers back through `LoopResult`
-
-### 2.4 Host closes issues (`src/index.ts`)
-- After loop completes, for each issue number in `result.closedIssues`, call `gh issue close <N>`
-- Log each close: `Closed issue #42`
-
----
-
-## Phase 3: Tests
-
-- Unit test `parseClosedIssues` — single issue, multiple issues, no issues, malformed
-- Update `loop.test.ts` — assert `closedIssues` populated on successful RALPH commit
-- Integration smoke test for interactive rendering (assert no throw, terminal left clean)
-
----
-
-## Unresolved Questions
-
-_None — all branches resolved._
-
----
-
-## Progress
-
-- [x] Phase 1: Interactive Mode
-- [x] Phase 2: Issue Auto-Close
-- [x] Phase 3: Tests
+### loop.test.ts
+- All tests updated to async/await
+- Added test for pre-fetch behavior

@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync, ExecSyncOptions } from 'child_process';
+import { execFileSync, spawn, ExecSyncOptions } from 'child_process';
 import { Credentials } from './credentials';
 
 const IMAGE_NAME = 'ifixit-cli';
@@ -83,32 +83,34 @@ export const startContainer = (
 
 export const execInContainer = (
   command: string[],
-  verbose: boolean = false,
-): { stdout: string; stderr: string; exitCode: number } => {
-  if (verbose) {
-    const result = spawnSync('docker', [
+  stream: boolean = false,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+  return new Promise((resolve) => {
+    const child = spawn('docker', [
       'exec', '-w', '/home/agent/repos', CONTAINER_NAME, ...command,
-    ], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'inherit', 'inherit'],
-      maxBuffer: 50 * 1024 * 1024,
+    ]);
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+      if (stream) process.stdout.write(chunk);
     });
-    return { stdout: '', stderr: '', exitCode: result.status ?? 1 };
-  }
 
-  const result = spawnSync('docker', [
-    'exec', '-w', '/home/agent/repos', CONTAINER_NAME, ...command,
-  ], {
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    maxBuffer: 50 * 1024 * 1024,
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      if (stream) process.stderr.write(chunk);
+    });
+
+    child.on('close', (code) => {
+      resolve({
+        stdout: Buffer.concat(stdoutChunks).toString('utf-8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf-8'),
+        exitCode: code ?? 1,
+      });
+    });
   });
-
-  return {
-    stdout: (result.stdout ?? '').toString(),
-    stderr: (result.stderr ?? '').toString(),
-    exitCode: result.status ?? 1,
-  };
 };
 
 export const stopContainer = (): void => {

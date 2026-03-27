@@ -74,7 +74,7 @@ const run = async (): Promise<void> => {
   startContainer(projectDir, credentials);
 
   try {
-    const result = runLoop({
+    const result = await runLoop({
       maxIterations: config.maxIterations,
       failureThreshold: config.failureThreshold,
       verbose: config.verbose,

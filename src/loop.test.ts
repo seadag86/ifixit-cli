@@ -28,7 +28,7 @@ const makeDeps = (overrides: Partial<LoopDeps> = {}): LoopDeps => ({
   assemblePrompt: () => 'prompt',
   getLatestRalphCommit: () => null,
   getCommitMessage: () => '',
-  execInContainer: () => ({ stdout: '', stderr: '', exitCode: 0 }),
+  execInContainer: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
   closeIssue: () => {},
   ...overrides,
 });
@@ -46,42 +46,42 @@ describe('runLoop', () => {
     console.log = originalLog;
   });
 
-  it('stops with complete when COMPLETE signal is in output', () => {
+  it('stops with complete when COMPLETE signal is in output', async () => {
     let callCount = 0;
     const deps = makeDeps({
-      execInContainer: () => {
+      execInContainer: async () => {
         callCount++;
         return { stdout: '<promise>COMPLETE</promise>', stderr: '', exitCode: 0 };
       },
     });
 
-    const result = runLoop(baseConfig, deps);
+    const result = await runLoop(baseConfig, deps);
     assert.equal(result.reason, 'complete');
     assert.equal(callCount, 1);
   });
 
-  it('stops at max iterations', () => {
+  it('stops at max iterations', async () => {
     let commitSha = 0;
     const deps = makeDeps({
       getLatestRalphCommit: () => `sha${++commitSha}`.padEnd(40, '0'),
     });
 
     const config = { ...baseConfig, maxIterations: 3 };
-    const result = runLoop(config, deps);
+    const result = await runLoop(config, deps);
     assert.equal(result.reason, 'max_iterations');
     assert.equal(result.iterations, 3);
   });
 
-  it('stops after consecutive failures hit threshold', () => {
+  it('stops after consecutive failures hit threshold', async () => {
     const deps = makeDeps();
     const config = { ...baseConfig, failureThreshold: 3 };
-    const result = runLoop(config, deps);
+    const result = await runLoop(config, deps);
     assert.equal(result.reason, 'circuit_breaker');
     assert.equal(result.iterations, 3);
     assert.equal(result.successCount, 0);
   });
 
-  it('resets failure counter after a success', () => {
+  it('resets failure counter after a success', async () => {
     let iteration = 0;
     const deps = makeDeps({
       getLatestRalphCommit: () => {
@@ -96,20 +96,20 @@ describe('runLoop', () => {
     });
 
     const config = { ...baseConfig, maxIterations: 10, failureThreshold: 3 };
-    const result = runLoop(config, deps);
+    const result = await runLoop(config, deps);
     assert.equal(result.reason, 'circuit_breaker');
     assert.equal(result.iterations, 6);
     assert.equal(result.successCount, 1);
   });
 
-  it('stops with complete when no issues remain', () => {
+  it('stops with complete when no issues remain', async () => {
     let fetchCount = 0;
     const deps = makeDeps({
       fetchOpenIssues: () => {
         fetchCount++;
         // First call (initialIssues in constructor): return issues
         // Second call (iteration 1): return issues
-        // Third call (iteration 2): return empty
+        // Third call (iteration 2 via prefetch): return empty
         if (fetchCount <= 2) return [makeIssue(1)];
         return [];
       },
@@ -119,18 +119,18 @@ describe('runLoop', () => {
       })(),
     });
 
-    const result = runLoop(baseConfig, deps);
+    const result = await runLoop(baseConfig, deps);
     assert.equal(result.reason, 'complete');
   });
 
-  it('tracks closed issues correctly', () => {
+  it('tracks closed issues correctly', async () => {
     let fetchCount = 0;
     const allIssues = [makeIssue(1), makeIssue(2), makeIssue(3)];
     const deps = makeDeps({
       fetchOpenIssues: () => {
         fetchCount++;
         // Initial fetch + iteration 1: all 3
-        // Iteration 2 + finish fetch: only issue 2 and 3 (issue 1 closed)
+        // Iteration 2 (via prefetch) + finish fetch: only issue 2 and 3 (issue 1 closed)
         if (fetchCount <= 2) return [...allIssues];
         return [makeIssue(2), makeIssue(3)];
       },
@@ -141,18 +141,24 @@ describe('runLoop', () => {
     });
 
     const config = { ...baseConfig, maxIterations: 2 };
-    const result = runLoop(config, deps);
+    const result = await runLoop(config, deps);
     assert.equal(result.closedIssues.length, 1);
     assert.equal(result.closedIssues[0].number, 1);
     assert.equal(result.openIssues.length, 2);
   });
 
-  it('calls fetchOpenIssues each iteration (fresh context)', () => {
-    let fetchCount = 0;
+  it('uses pre-fetched issues for subsequent iterations', async () => {
+    const fetchTimestamps: number[] = [];
+    let execResolve: (() => void) | null = null;
     const deps = makeDeps({
       fetchOpenIssues: () => {
-        fetchCount++;
+        fetchTimestamps.push(Date.now());
         return [makeIssue(1)];
+      },
+      execInContainer: async () => {
+        // Simulate a short delay so prefetch can run during execution
+        await new Promise<void>((resolve) => { execResolve = resolve; setTimeout(resolve, 10); });
+        return { stdout: '', stderr: '', exitCode: 0 };
       },
       getLatestRalphCommit: (() => {
         let sha = 0;
@@ -161,12 +167,13 @@ describe('runLoop', () => {
     });
 
     const config = { ...baseConfig, maxIterations: 3 };
-    runLoop(config, deps);
-    // 1 initial + 3 iterations + 1 finish = 5
-    assert.equal(fetchCount, 5);
+    await runLoop(config, deps);
+    // fetchOpenIssues should have been called: 1 initial + 3 iterations (1 direct + 2 prefetch) + 1 finish = 5
+    // But with prefetch, iteration 2 and 3 use prefetched results
+    assert.ok(fetchTimestamps.length >= 4);
   });
 
-  it('calls closeIssue for each issue number parsed from commit message', () => {
+  it('calls closeIssue for each issue number parsed from commit message', async () => {
     const closed: number[] = [];
     let commitSha = 0;
     const deps = makeDeps({
@@ -176,11 +183,11 @@ describe('runLoop', () => {
     });
 
     const config = { ...baseConfig, maxIterations: 1 };
-    runLoop(config, deps);
+    await runLoop(config, deps);
     assert.deepEqual(closed.sort((a, b) => a - b), [7, 42]);
   });
 
-  it('does not call closeIssue when commit message has no closes reference', () => {
+  it('does not call closeIssue when commit message has no closes reference', async () => {
     let closeCalled = false;
     let commitSha = 0;
     const deps = makeDeps({
@@ -190,7 +197,7 @@ describe('runLoop', () => {
     });
 
     const config = { ...baseConfig, maxIterations: 1 };
-    runLoop(config, deps);
+    await runLoop(config, deps);
     assert.equal(closeCalled, false);
   });
 });

@@ -117,10 +117,6 @@ export const resolveConfig = (projectDir: string): IfixitCliConfig => {
   const projectConfig = loadProjectConfig(projectDir);
   const cliConfig = parseArgs(process.argv);
 
-  if (cliConfig.interactive && cliConfig.verbose) {
-    throw new Error('--interactive and --verbose are mutually exclusive');
-  }
-
   return {
     maxIterations: cliConfig.maxIterations ?? projectConfig.maxIterations ?? DEFAULTS.maxIterations,
     failureThreshold: cliConfig.failureThreshold ?? projectConfig.failureThreshold ?? DEFAULTS.failureThreshold,

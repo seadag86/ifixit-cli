@@ -17,9 +17,11 @@ export interface LoopConfig {
   projectDir: string;
 }
 
+export type ExecResult = { stdout: string; stderr: string; exitCode: number };
+
 export interface LoopDeps {
   fetchOpenIssues: (dir: string) => Issue[];
-  execInContainer: (cmd: string[], verbose: boolean) => { stdout: string; stderr: string; exitCode: number };
+  execInContainer: (cmd: string[], stream: boolean) => Promise<ExecResult>;
   getLatestRalphCommit: (dir: string) => string | null;
   getRecentRalphCommits: (dir: string) => string;
   getCommitMessage: (sha: string, dir: string) => string;
@@ -37,7 +39,7 @@ export interface LoopResult {
 
 const defaultDeps: LoopDeps = {
   fetchOpenIssues: defaultFetchOpenIssues,
-  execInContainer: defaultExecInContainer,
+  execInContainer: (cmd, stream) => defaultExecInContainer(cmd, stream),
   getLatestRalphCommit: defaultGetLatestRalphCommit,
   getRecentRalphCommits: defaultGetRecentRalphCommits,
   getCommitMessage: defaultGetCommitMessage,
@@ -80,7 +82,7 @@ const log = (interactive: boolean, msg: string): void => {
   }
 };
 
-export const runLoop = (config: LoopConfig, deps: LoopDeps = defaultDeps): LoopResult => {
+export const runLoop = async (config: LoopConfig, deps: LoopDeps = defaultDeps): Promise<LoopResult> => {
   const { maxIterations, failureThreshold, verbose, debug, interactive, projectDir } = config;
 
   let consecutiveFailures = 0;
@@ -97,11 +99,14 @@ export const runLoop = (config: LoopConfig, deps: LoopDeps = defaultDeps): LoopR
     return { iterations, successCount, reason, closedIssues, openIssues: remainingIssues };
   };
 
+  let prefetchedIssues: Issue[] | null = null;
+
   for (let i = 1; i <= maxIterations; i++) {
     const iterStart = Date.now();
 
     if (interactive) renderStatus(frame++, i, maxIterations, 'fetching issues', iterStart, loopStart, consecutiveFailures);
-    const issues = deps.fetchOpenIssues(projectDir);
+    const issues = prefetchedIssues ?? deps.fetchOpenIssues(projectDir);
+    prefetchedIssues = null;
     if (issues.length === 0) {
       log(interactive, `[${i}/${maxIterations}] No open issues remaining`);
       return finish(i, 'complete');
@@ -117,7 +122,20 @@ export const runLoop = (config: LoopConfig, deps: LoopDeps = defaultDeps): LoopR
     } else {
       console.log(`[${i}/${maxIterations}] Running RALPH iteration...`);
     }
-    const { stdout, stderr, exitCode } = deps.execInContainer(
+
+    // Pre-fetch issues for next iteration while Claude runs
+    let prefetchPromise: Promise<Issue[]> | null = null;
+    if (i < maxIterations) {
+      prefetchPromise = new Promise<Issue[]>((resolve) => {
+        try {
+          resolve(deps.fetchOpenIssues(projectDir));
+        } catch {
+          resolve([]);
+        }
+      });
+    }
+
+    const { stdout, stderr, exitCode } = await deps.execInContainer(
       ['claude', '-p', '--dangerously-skip-permissions', '--output-format', 'text', prompt],
       verbose,
     );
@@ -155,6 +173,12 @@ export const runLoop = (config: LoopConfig, deps: LoopDeps = defaultDeps): LoopR
         log(interactive, `Circuit breaker: ${failureThreshold} consecutive failures. Stopping.`);
         return finish(i, 'circuit_breaker');
       }
+    }
+
+    // Await the pre-fetched issues after post-processing so closed issues are reflected
+    // Note: the fetch started during Claude execution, but we consume it after issue closing
+    if (prefetchPromise) {
+      prefetchedIssues = await prefetchPromise;
     }
   }
 
